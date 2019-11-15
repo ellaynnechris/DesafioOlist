@@ -1,0 +1,333 @@
+---
+title: "Modelo de Recomendações Olist"
+author: "Ellaynne Christine R. de Moraes Sousa"
+date: "13/11/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+#library("readr")
+# library("ggpubr")
+# library("ggplot2")
+# library("magrittr")
+ library("corrplot")
+# library("tidyverse")
+
+train <- read.csv("D:/Users/EllaynneChristine/Desktop/ELLAYNNE/Desafio Olist/train.csv", sep = ";")
+
+```
+## Entendimento do problema
+
+O conjunto de dados a seguir apresenta informações referentes à vendas realizadas na Olist, uma loja de departamentos dos marketplaces. A proposta deste trabalho é criar um Modelo de Recomendações (SR) para sugerir produtos que os clientes possam gostar. A abordagem trabalhada para esse SR foi a Filtragem Baseada em Conteúdo, já a maioria dos dados disponibilizados possuem mais características sobre os produtos à venda. A Filtragem Baseada em Conteúdo analisa os itens que foram avaliados pelo usuário para lhe sugerir itens parecidos. A target, isto é, a variável alvo do modelo é a nota de avaliação que os clientes deram para produtos já adquiridos. Assim, será realizada uma análise exploratória sobre os dados, olhando-se questões importantes como a correlação entre variáveis, que mostrem, por exemplo, como a categoria e dimensões do produto podem influenciar na avaliação dos clientes, e, posteriormente a criação de uma modelo que possa dizer qual possível nota um cliente daria para determinado produto, analisando as características desses produtos.
+
+## Entendimento dos Dados
+
+Os dados aqui utilizados são resultado de uma extração realizada a partir de um conjunto de datasets disponibilizado pela Olist. As variáveis foram escolhidas pela própria autora desse trabalho, que se baseou nos conceitos da Filtragem Baseada em Conteúdo, levando em consideração as informações disponíveis sobre os produtos. As avaliações consideradas na extração foram aquelas de pedidos que possuíam apenas um produto.
+
+
+### Primeira visualização dos dados
+
+O dataset é composto por 13 variáveis, sendo a variável dependente (target) a "NotaAvaliacao". As demais variáveis são referentes ao Id da Avaliação, Status do Pedido, Preço do Produto, Categoria, Quantidade de Fotos, Peso, Comprimento, Altura, Largura, Cidade do Vendedor, Dias para Envio e Dias Previstos para Entrega.
+
+
+```{r, echo=FALSE}
+train$PrecoProduto <- as.numeric(train$PrecoProduto)
+
+```
+
+
+```{r}
+
+summary(train)
+
+```
+
+
+```{r, echo=FALSE}
+train$NotaAvaliacaoFactor<- as.factor(train$NotaAvaliacao)
+
+```
+
+No detalhamento das variáveis mostrado acima, identificá-se que há uma variável, "StatusPedido", que possui valor constante, e, por isso, pode ser descartada por não agregar valor na análise, já que todas os valores são o mesmo: "delivered". E há uma variável identificadora, IdAvaliação, que também pode ser descartada por não influênciar na busca de correlação como a variável target. Assim, essas variáveis citadas não serão analisadas.
+Outra coisa importante a se notar é que as variáveis "QuantidadeFotos", "Peso", "Comprimento", "Altura" e "Largura" possuem missings, isto é, dados nulos.
+
+
+
+
+### Análise descritiva das variáveis numéricas:
+
+```{r, echo=FALSE}
+
+train.na.omit <- na.omit(train)
+
+for(i in 1: length(train.na.omit))
+{
+  #print(class(train[[i]]))
+  if((class(train.na.omit[[i]]) == "integer" | class(train.na.omit[[i]]) == "numeric") & colnames(train.na.omit[i])!="NotaAvaliacao")
+  {
+    par(mfrow=c(3,2))
+    boxplot(train.na.omit[[i]], horizontal = TRUE, main = paste0(colnames(train.na.omit[i]), " (with outliners)"))
+    boxplot(train.na.omit[[i]], horizontal = TRUE, outline = FALSE, main = paste0(colnames(train.na.omit[i]), " (without outliners)"))
+    boxplot(train.na.omit[[i]]~train.na.omit$NotaAvaliacao, horizontal = TRUE, main =  paste0(colnames(train.na.omit[i]), " vs Nota Avaliação (with outliners)"), ylab = "Nota Avaliação", xlab=colnames(train.na.omit[i]))
+    boxplot(train.na.omit[[i]]~train.na.omit$NotaAvaliacao, horizontal = TRUE, outline = FALSE, main =  paste0(colnames(train.na.omit[i]), " vs Nota Avaliação (without outliners)"), ylab = "Nota Avaliação", xlab=colnames(train.na.omit[i]))
+    hist(train.na.omit[[i]], main = "Histograma", xlab = colnames(train.na.omit[i]))
+  }
+}
+
+```
+
+
+#### • Preço
+
+A faixa de preços dos produtos vai de 1 a 1646 e a média é de 864,30.
+Metade dos produtos custam entre 444 e 1.251.
+Os produtos que receberam nota 3 são os que possuem maior mediana de preço. As demais notas não demonstram uma grande variação em relação ao preço. Isso pode significar que o preço não possui um correlação com a nota atribuída.
+
+#### • Quantidade de Fotos
+
+A quantidade de fotos do produto no anúncio varia entre 1 e 15 e a maioria dos produtos possui entre 1 e 3 fotos, sendo a média de 2 fotos por produto. Há outliers,isto é, valores distantes dos quatro quartis. Isso quer dizer que alguns produtos possuem mais de 6 fotos no seu anúncio.
+
+Através do boxplot dessa variável e da target(NotaAvaliacao), nota-se que os produtos que tiveram menores notas são os que possuem poucas fotos.
+
+
+#### • Peso
+
+O peso médio dos produtos é de 2077,4g, sendo o mínimo de 0g e o máximo de 30000g.
+Em análise ao boxlot bivariado formado com essa variável e a target, nota-se um pequena variação no valor da nota em relação aos pesos dos produtos. Então, não há uma relação muito significativa entre Peso e Nota.
+
+
+#### • Comprimento
+
+A maioria dos itens vendidos possuem entre 7cm e 70cm, aproximadamente.
+Há uma variância entre as medianas das notas em relação ao comprimento do produto, que pode indicar uma correlação média entre essas variáveis.
+Todos os produtos que receberam notas 2 ou 3 possuem mais de 15cm.
+
+
+#### • Altura
+
+A altura varia entre 2cm e 105cm, sendo que 50% dos itens têm entre 7cm e 20cm. Os outliers mostram que há itens que vão de 40cm a 100cm. No boxplot bivariado, a única variância que se difere das outras foram as avaliações com valor 1.
+
+
+#### • Largura
+
+A largura mínima é 9cm e a máxima 100cm. A maioria dos produtos possuem até 55cm de largura,aproximadamente.
+A diferença apresentada entre os boxplots de relação entre avaliação e largura não sugerem um correlação significativa.
+
+
+
+#### • Dias para Envio
+
+A quantidade de dias para envio do produto pode variar de 2 a 48 dias, mas a maioria deles é despachada com até 8 dias.
+Os boxplots dessa variável em relação às notas mostram que não há uma variância significativa, com exceção dos produtos que tiveram notas 1 ou 5, o que se pode inferir que essa variável não tem grande influência na nota.
+
+
+#### • Dias Previsto Entrega
+
+Metade dos pedidos têm uma previsão de entrega de 19 à 29 dias.
+
+A variância entre os boxplots de notas em relação ao dia previsto de entrega não é grande, porém pode indicar uma certa correlação.
+
+
+
+#### • Correlação entre as variáveis numéricas:
+
+```{r, echo= FALSE}
+
+train.num <- train.na.omit[,c("NotaAvaliacao", "PrecoProduto", "QuantidadeFotos", "Peso", "Comprimento", "Altura", "Largura", "DiasEnvio", "DiasPrevistoEntrega")]
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(cor(train.num, method = "pearson"), method="color", col=col(200),  
+         type="upper", order="hclust", 
+         #addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black", tl.srt=60, #Text label color and rotation
+        sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag=FALSE 
+         )
+
+
+```
+
+Através da análise do gráfico de correlações é possível identificar que poucas variáveis têm correlação com a target(cores mais claras). Entretanto, há variáveis independentes que têm uma correlação bem alta entre si, como por exemplo Peso e Altura, que possuem uma correlação positiva.
+
+
+#### Análise das variáveis categóricas
+
+
+```{r, echo= FALSE}
+
+plot(train$NotaAvaliacaoFactor, main="Nota Avalição")
+
+for(i in 1: length(train))
+{
+  if(class(train[[i]]) == "factor" & colnames(train[i])!="NotaAvaliacaoFactor" & colnames(train[i])!="IdAvaliacao" & colnames(train[i])!="StatusPedido")
+  {
+    par(mfrow=c(1,1))
+    plot(train[[i]], main = colnames(train[i]), xlab=colnames(train[i]))
+    plot(train$NotaAvaliacaoFactor, train[[i]], main = paste0(colnames(train[i]), " vs Nota Avaliação"), ylab = "NotaAvaliacaoFactor",
+            xlab=colnames(train[i]))
+  }
+}
+
+
+```
+
+
+
+#### • Nota Avaliação
+
+A maioria das notas foram 5, seguidas de 4. Isso quer dizer que a maioria dos produtos e dos serviços agradaram seu comprador.
+
+
+#### • Categoria
+
+De um total de 69 categorias, essas foram as que tiveram maior quantidade de vendas: cama_mesa_banho(701), beleza_saude(663), esporte_lazer(594) e informatica_acessorios(538).
+As melhores avaliações(nota 5) foram para as categorias beleza_saude, cama_mesa_banho, esporte_lazer e moveis_decoracao.
+As notas mais baixas (nota 1) foram para as categorias beleza_saude, cama_mesa_banho, informatica_acessorios e moveis_decoracao.
+
+
+#### • Cidade Vendedor (LOja)
+
+As três cidade que mais tiveram avaliações nos dados aqui avaliados foram São Paulo (com 1959 avaliações), Ibitinga (468) e curitiba (225) de um total de 385 cidades.
+
+As cidades que mais avaliaram seus pedidos com nota 5 são as mesmas que tiveram maior número de avaliações. E as cidades que mais avaliaram com nota 1 foram São Paulo, Ibitinga e Ribeirão Preto.
+
+Poucas cidades deram nota 2.
+
+
+
+## Preparação dos Dados
+
+Após descartar variáveis que não agregam valores à análise, conforme já apresentado no tópico anterior, ficaram 10 variáveis independentes e a target (NotaAvaliacao). Das 10 variáveis não dependentes, 8 são numericas e 2 são categóricas.
+
+Apesar de a quantidade dados missings serem bem pequenas, decidiu-se utilizar a técnica de input para esses dados nulos. Para as variáveis QuantidadeFotos, Comprimento, Altura, Largura e Peso os valores missings foram substituídos pelas respectivas médias, pois esse valor não inflenciaria nas demais medidas de posição do conjunto.
+
+Para melhor treinamento do algoritmo, adotou-se a técnica de cross-validation(k-folds) que consiste em dividir o conjunto de dados e realizar o treinamento e validação com essas partes, alternando entre elas o processo de treinamento e validação, aumentando, assim, as possibilidades de aprendizado do algoritmo.
+
+
+```{r include=FALSE}
+train$IdAvaliacao <- NULL
+train$StatusPedido <- NULL
+
+library(h2o)
+localH2O = h2o.init(nthreads= -1)
+
+train.h <- as.h2o(train)
+
+h2o.impute(train.h, "QuantidadeFotos" , "mean")
+h2o.impute(train.h, "Peso" , "mean")
+h2o.impute(train.h, "Comprimento" , "mean")
+h2o.impute(train.h, "Altura" , "mean")
+h2o.impute(train.h, "Largura" , "mean")
+
+
+```
+
+
+## Modelagem
+
+A abordagem de machine learning a ser utilizada nesse trabalho é a de aprendizagem de máquina supervisionado, pois no conjunto de dados utilizado para treinamento já existem as classes de saída já definidas, que são os valores das notas de avaliação : 1, 2, 3, 4 ou 5.
+E a tarefa a ser executada é uma Regressão, pois o conjunto de labels ou classes esperado são valores continuos, ao contrário de uma tarefa de classificação, onde o resultado esperado possui saída discreta (normalmente Verdadeiro ou Falso).
+
+Para realizada a análise dos dados apresentadas acima, utilizou-se o RStudio, que é um ambiente de desenvolvimento integrado (IDE) para a leitura da linguagem R, uma linguagem de programação para gráficos e cálculos estatísticos. E para realizar a modelagem de machine learning, será utilizado o pacote H2O,que possui vários algoritmos de aprendizagem de máquina já implementados, integrado com o RStudio.
+
+
+```{r}
+myX <- setdiff(colnames(train), c("NotaAvaliacao", "NotaAvaliacaoFactor", "CidadeVendedor", "DiasEnvio"))
+
+myY <- "NotaAvaliacaoFactor"
+
+Model.GBM <- h2o.gbm(
+                     x= myX,
+                     y = myY,
+                     training_frame = train.h,
+                     balance_classes = TRUE,
+                     nfolds = 5,
+                     seed = 1234,
+                     model_id = "GBM",
+                     ntrees = 35,
+                     max_depth = 25,
+                     learn_rate = 0.001
+                    )
+
+
+```
+
+<!-- #### Métricas de validação -->
+
+```{r, echo=FALSE}
+#Model.GBM@model$cross_validation_metrics_summary
+
+```
+
+
+#### Matriz de confusão da validação
+
+```{r, echo=FALSE}
+h2o.confusionMatrix(Model.GBM)
+
+```
+Precision: 0.60
+Recall: 1.00
+
+
+
+#### Importância das variáveis no treinamento
+
+As variáveis que tiveram mais importância para o modelo na hora de realizar as predições foram Dias Previsto para Entrega, Preço do Produto e Categoria
+
+```{r, echo=FALSE}
+
+Model.GBM@model[["variable_importances"]]
+
+```
+
+
+```{r, include=FALSE}
+
+#data.split <- h2o.splitFrame(data = train.h, ratios = c(0.7,0.2), seed = 1234)
+
+#dados.treino <- data.split[[1]]
+#dados.validacao <- data.split[[2]]
+#dados.teste <- data.split[[3]]
+
+
+# Model.RF <- h2o.randomForest(
+#                      x= myX,
+#                      y = myY,
+#                      training_frame = dados.treino,
+#                      validation_frame = dados.validacao,
+#                      balance_classes = TRUE,
+#                      #nfolds = 5,
+#                      seed = 1234,
+#                      model_id = "RF",
+#                      ntrees = 40,
+#                      max_depth = 25
+#                      #learn_rate = 0.001
+#                     )
+# 
+# Model.RF@model$cross_validation_metrics
+# h2o.confusionMatrix(Model.RF)
+# Model.RF@model$cross_validation_metrics_summary
+# Model.RF@model$variable_importances
+
+```
+
+
+
+# --------------------------------------------------------------------------------------------------
+#                                                Conclusão
+
+  Muitos testes foram realizados até chegar no algoritmo apresentado: diferentes valores de parâmetros de configuração para a construção dos modelos, além de diferentes combinações de variáveis (independentes) no dataset de treinamento.
+
+  O modelo encontrado foi o que obteve o resultado mais interessante dentre outros que não apresentaram bons valores para as métricas de avaliação. Esse modelo é baseado em um algoritmo de árvore de decisão, o GBM (Gradient Boosting Machines). O GBM é um algoritmo de aprendizagem
+supervisionada que consegue trabalhar tanto com problemas de classificação, como os de regressão. 
+  Duas métricas de avaliação apresentaram um bom resultado no modelo para a classe 5: a precisão (60%) e a sensibilidade(100%). A precisão é o número de acertos divido pelo número total de exemplos. E a sensibilidade ou recall é a proporção de acertos de verdadeiros positivos em cima dos exemplos que realmente pertencem. A precisão e o recall com bom valores, temos outra métrica que também apresenta um bom valor: a F-measure(F1), que nada mais é que a média harmonica entre a precisão e o recall.
+  
+  O modelo acertou todos os exemplos que pertencem à classe 5, apesar de ter errado ao predizer todas as outras classes. Mesmo com esses erros nas classes diferentes de 5, o modelo consegue recomendar ao cliente aqueles produtos que seriam avaliados com nota máxima.
